@@ -36,7 +36,8 @@ app/
 ├── exercises/           # CRUD /exercises
 ├── sessions/            # CRUD /sessions
 ├── progress/            # stats & charts          (read-only aggregation)
-└── chat/                # AI coach (Gemini)       (stateless)
+├── chat/                # AI coach (Gemini)       (gemini.py wraps the client)
+└── conversations/       # persistent chat memory, import & published references
 ```
 
 Per feature:
@@ -48,8 +49,10 @@ Per feature:
 | `schemas.py`      | Pydantic request/response models (the API contract).        |
 | `models.py`       | Shape of the stored MongoDB document (where one exists).    |
 
-`muscles`, `progress`, and `chat` have no `models.py` — they derive everything
-from the `exercises` / `sessions` collections or are stateless.
+`muscles` and `progress` have no `models.py` — they derive everything from the
+`exercises` / `sessions` collections. `chat` has none either: it orchestrates a
+turn but stores nothing itself — persistence lives in `conversations`, which owns
+the `conversations` and `messages` collections.
 
 ### Request flow
 
@@ -139,14 +142,24 @@ Every endpoint except `/`, `/auth/register`, and `/auth/login` requires an
 | DELETE | `/sessions/{id}`           | Delete a session |
 | GET    | `/progress/overview`       | Overall stats + per-muscle breakdown |
 | GET    | `/progress/exercise/{id}`  | Weight progression for one exercise (`?days=`) |
-| POST   | `/chat`                    | AI coach — answers using your recent training data |
+| POST   | `/chat`                    | AI coach — remembers the conversation, uses your training data |
+| POST   | `/conversations/import`    | Import a Gemini conversation (`messages` or pasted `raw_text`) |
+| GET    | `/conversations`           | List conversations (`?source=`, `?is_published=`, `?limit=`, `?skip=`) |
+| GET    | `/conversations/{id}`      | Conversation detail + messages |
+| PUT    | `/conversations/{id}`      | Rename / publish / label a conversation |
 
 ## AI coach (Gemini)
 
-`POST /chat` summarises the authenticated user's last 30 days of sessions and
-sends them to **Gemini 2.5 Flash** as context, so replies reference the user's
-real numbers. The summary is always scoped to the logged-in user (derived from
+`POST /chat` sends context to **Gemini 2.5 Flash** so replies reference the
+user's real numbers. All reads are scoped to the logged-in user (derived from
 the JWT, never the request body) — the model never sees another user's data.
+
+Each turn assembles, in clearly separated blocks:
+
+1. the user's **last 30 days of sessions**,
+2. any **published reference material** matching `reference_labels` (see below),
+3. the conversation's **rolling summary** of older turns, and
+4. the **recent raw messages**, then the new message.
 
 To enable it:
 
@@ -156,3 +169,52 @@ To enable it:
 
 Without a key, `/chat` returns `500 {"detail": "GEMINI_API_KEY not configured"}`;
 every other endpoint works without it.
+
+### Persistent memory
+
+Conversations and messages are stored in MongoDB (`conversations` / `messages`).
+A turn:
+
+- omits `conversation_id` to **start** a thread, or passes the one returned by a
+  previous call to **continue** it — the `conversation_id` is always in the
+  response;
+- saves both the user message and the assistant reply immediately after the API
+  call, with a **token count per message** (assistant counts come from Gemini's
+  usage metadata; others use a ~4-chars/token estimate, computed once at write
+  time so reads never recount);
+- once the active window (summary + unsummarised turns) passes
+  `CHAT_SUMMARY_TOKEN_THRESHOLD`, folds the older turns into a stored **summary**
+  and keeps the last `CHAT_HISTORY_LIMIT` raw — a sliding window. Raw messages
+  are never deleted, only excluded from what's loaded.
+
+> **Server owns history.** The old client-supplied `history` field on `/chat` is
+> **deprecated** — it is accepted but ignored. Pass `conversation_id` instead.
+
+### Importing Gemini conversations
+
+`POST /conversations/import` stores an existing Gemini conversation as a new
+record flagged `source: "gemini_import"`. Send **exactly one** of:
+
+- `messages`: `[{ "role": "user|model|assistant", "content": "..." }]`, or
+- `raw_text`: the conversation copy-pasted as text. It's parsed by, in order:
+  role-marker lines (`User:` / `Gemini:` / …); else turns separated by a line of
+  only `---` (alternating, your prompt first); else a `400` (it won't guess).
+
+There is no machine export from gemini.google.com — open a conversation (or its
+`/share/...` link), copy it, and paste into `raw_text`.
+
+### Published reference material
+
+Mark any conversation as reusable background with
+`PUT /conversations/{id}` (`{"is_published": true, "label": "..."}`). When a
+`/chat` request includes `reference_labels`, the user's **own** published
+conversations with a matching label are injected as a separate reference block
+(per-user only — never shared across users; label match for now, vector search
+later).
+
+### Config knobs
+
+| Variable                       | Default | Description |
+| ------------------------------ | ------- | ----------- |
+| `CHAT_HISTORY_LIMIT`           | `10`    | Raw messages kept after summarising |
+| `CHAT_SUMMARY_TOKEN_THRESHOLD` | `4000`  | Active-window token budget before older turns are summarised |

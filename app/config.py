@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # ── Google Gemini (AI chat) ──
     GEMINI_API_KEY: str = ""
 
+    # ── AI chat memory (sliding window + summarisation) ──
+    # Raw messages kept in the active context after summarising older ones.
+    CHAT_HISTORY_LIMIT: int = 10
+    # Once the active window (summary + unsummarised turns) exceeds this many
+    # tokens, older turns are folded into the conversation summary.
+    CHAT_SUMMARY_TOKEN_THRESHOLD: int = 4000
+
     # ── CORS ── (JSON array in the env var, e.g. ["https://app.example.com"])
     CORS_ORIGINS: list[str] = ["*"]
 
