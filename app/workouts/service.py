@@ -112,6 +112,7 @@ async def _exercises_block(db, user_id, workout_id, muscle: str) -> list[Exercis
                 muscle=ex["muscle"],
                 logged_set_count=set_count,
                 last_summary=last_summary,
+                image_url=ex.get("image_url"),
             )
         )
     return block

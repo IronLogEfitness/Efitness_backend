@@ -35,6 +35,7 @@ class ExerciseInWorkout(BaseModel):
     muscle: str
     logged_set_count: int  # sets logged for this exercise within this workout
     last_summary: str | None
+    image_url: str | None = None
 
 
 class MuscleGroupBlock(BaseModel):
