@@ -1,22 +1,42 @@
 # Environment variables (secrets — NEVER commit)
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
 *.egg-info/
+*.egg
+build/
+dist/
+
+# Test / type-check / lint caches
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
 
 # Virtual environment
 venv/
 .venv/
 env/
 
+# Logs
+*.log
+logs/
+
 # IDE / Editor
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini

@@ -9,12 +9,6 @@ class ExerciseCreate(BaseModel):
     image_url: str | None = None
 
 
-class ExerciseUpdate(BaseModel):
-    name: str | None = None
-    emoji: str | None = None
-    image_url: str | None = None
-
-
 class SetSummary(BaseModel):
     set_number: int
     weight_kg: float

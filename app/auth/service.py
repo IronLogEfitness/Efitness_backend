@@ -16,6 +16,10 @@ def serialize_user(user: dict) -> UserResponse:
         id=str(user["_id"]),
         name=user["name"],
         email=user["email"],
+        username=user.get("username"),
+        gender=user.get("gender"),
+        height_cm=user.get("height_cm"),
+        weight_kg=user.get("weight_kg"),
         created_at=user["created_at"],
     )
 
@@ -52,6 +56,14 @@ async def update_profile(db, user: dict, body: UpdateProfileRequest) -> UserResp
         update["name"] = body.name
     if body.password is not None:
         update["password"] = hash_password(body.password)
+    if body.username is not None:
+        update["username"] = body.username
+    if body.gender is not None:
+        update["gender"] = body.gender
+    if body.height_cm is not None:
+        update["height_cm"] = body.height_cm
+    if body.weight_kg is not None:
+        update["weight_kg"] = body.weight_kg
 
     if update:
         await db[COLLECTION].update_one({"_id": user["_id"]}, {"$set": update})

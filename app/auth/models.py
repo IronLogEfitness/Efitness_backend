@@ -14,4 +14,8 @@ class UserDocument(BaseModel):
     name: str
     email: str
     password: str
+    username: str | None = None
+    gender: str | None = None
+    height_cm: float | None = None
+    weight_kg: float | None = None
     created_at: datetime = Field(default_factory=now_utc)
