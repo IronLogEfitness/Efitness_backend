@@ -22,6 +22,9 @@ class SessionDocument(BaseModel):
 
     user_id: ObjectId
     exercise_id: ObjectId
+    # The training session (workout) this set-log belongs to, when logged from the
+    # agenda flow. Optional so older / standalone logs remain valid.
+    workout_id: ObjectId | None = None
     date: datetime
     sets: list[SetDocument]
     notes: str | None = None

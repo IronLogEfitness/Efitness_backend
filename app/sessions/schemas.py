@@ -12,6 +12,7 @@ class SetIn(BaseModel):
 
 class SessionCreate(BaseModel):
     exercise_id: str
+    workout_id: str | None = None  # the training session this set-log belongs to
     date: datetime | None = None  # defaults to now if omitted
     sets: list[SetIn] = Field(..., min_length=1)
     notes: str | None = None
@@ -31,6 +32,7 @@ class SetOut(BaseModel):
 class SessionResponse(BaseModel):
     id: str
     exercise_id: str
+    workout_id: str | None = None
     date: datetime
     sets: list[SetOut]
     notes: str | None

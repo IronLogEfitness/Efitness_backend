@@ -6,12 +6,15 @@ from app.helpers.filters import Pagination
 from app.helpers.objectid import parse_object_id
 from app.sessions.models import COLLECTION, SessionDocument
 from app.sessions.schemas import SessionCreate, SessionResponse, SessionUpdate
+from app.workouts.models import COLLECTION as WORKOUTS_COLLECTION
 
 
 def _to_response(doc: dict) -> SessionResponse:
+    workout_id = doc.get("workout_id")
     return SessionResponse(
         id=str(doc["_id"]),
         exercise_id=str(doc["exercise_id"]),
+        workout_id=str(workout_id) if workout_id else None,
         date=doc["date"],
         sets=doc["sets"],
         notes=doc.get("notes"),
@@ -20,11 +23,14 @@ def _to_response(doc: dict) -> SessionResponse:
 
 
 async def list_sessions(
-    db, user_id, page: Pagination, exercise_id: str | None = None
+    db, user_id, page: Pagination, exercise_id: str | None = None,
+    workout_id: str | None = None,
 ) -> list[SessionResponse]:
     query = {"user_id": user_id}
     if exercise_id:
         query["exercise_id"] = parse_object_id(exercise_id, "exercise id")
+    if workout_id:
+        query["workout_id"] = parse_object_id(workout_id, "workout id")
 
     cursor = (
         db[COLLECTION]
@@ -47,9 +53,20 @@ async def create_session(db, user_id, body: SessionCreate) -> SessionResponse:
     if not exercise:
         raise NotFoundError("Exercise not found")
 
+    # When logged from the agenda flow, tie the set-log to its training session.
+    workout_oid = None
+    if body.workout_id:
+        workout_oid = parse_object_id(body.workout_id, "workout id")
+        workout = await db[WORKOUTS_COLLECTION].find_one(
+            {"_id": workout_oid, "user_id": user_id}
+        )
+        if not workout:
+            raise NotFoundError("Workout not found")
+
     doc = SessionDocument(
         user_id=user_id,
         exercise_id=exercise_oid,
+        workout_id=workout_oid,
         date=body.date or now_utc(),
         sets=[s.model_dump() for s in body.sets],
         notes=body.notes,

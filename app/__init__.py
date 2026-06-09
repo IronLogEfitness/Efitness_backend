@@ -64,10 +64,12 @@ def create_app() -> FastAPI:
     from app.muscles.router import router as muscles_router
     from app.progress.router import router as progress_router
     from app.sessions.router import router as sessions_router
+    from app.workouts.router import router as workouts_router
 
     app.include_router(auth_router,          prefix="/auth",          tags=["Auth"])
     app.include_router(muscles_router,       prefix="/muscles",       tags=["Muscles"])
     app.include_router(exercises_router,     prefix="/exercises",     tags=["Exercises"])
+    app.include_router(workouts_router,      prefix="/workouts",      tags=["Workouts"])
     app.include_router(sessions_router,      prefix="/sessions",      tags=["Sessions"])
     app.include_router(progress_router,      prefix="/progress",      tags=["Progress"])
     app.include_router(chat_router,          prefix="/chat",          tags=["AI Chat"])

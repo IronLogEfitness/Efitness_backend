@@ -13,11 +13,14 @@ router = APIRouter()
 @router.get("", response_model=list[SessionResponse])
 async def get_sessions(
     exercise_id: str | None = None,
+    workout_id: str | None = None,
     page: Pagination = Depends(pagination_params),
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
-    return await service.list_sessions(db, current_user["_id"], page, exercise_id)
+    return await service.list_sessions(
+        db, current_user["_id"], page, exercise_id, workout_id
+    )
 
 
 @router.post("", response_model=SessionResponse, status_code=201)

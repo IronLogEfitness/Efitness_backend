@@ -25,40 +25,54 @@ from app.exercises.models import COLLECTION as EXERCISES_COLLECTION
 from app.helpers.dates import now_utc
 from app.helpers.exceptions import AppError
 from app.sessions.models import COLLECTION as SESSIONS_COLLECTION
+from app.workouts.models import COLLECTION as WORKOUTS_COLLECTION
 
 logger = logging.getLogger(__name__)
 
 CONTEXT_DAYS = 30
 
 
-async def _build_training_block(db, user: dict) -> str:
-    """A bullet list of the user's last 30 days of sessions, with exercise names.
+def _sets_text(sets: list[dict]) -> str:
+    return ", ".join(f"{st['weight_kg']}kg×{st['reps']}" for st in sets)
 
-    Scoped to ``user["_id"]`` so it can only read this user's own data.
+
+async def _build_training_block(db, user: dict) -> str:
+    """The user's last 30 days of training, organised by session (workout).
+
+    Each session shows its date, title, the muscle groups worked, and the exercises
+    logged under it. Scoped to ``user["_id"]`` so it can only read this user's own data.
     """
     user_id = user["_id"]
     since = now_utc() - timedelta(days=CONTEXT_DAYS)
 
-    sessions = await db[SESSIONS_COLLECTION].find(
+    workouts = await db[WORKOUTS_COLLECTION].find(
         {"user_id": user_id, "date": {"$gte": since}}
-    ).sort("date", -1).limit(20).to_list(20)
+    ).sort("date", -1).limit(40).to_list(40)
 
-    summaries = []
-    for s in sessions:
-        # Re-assert ownership on the exercise lookup (defence in depth).
-        ex = await db[EXERCISES_COLLECTION].find_one(
-            {"_id": s["exercise_id"], "user_id": user_id}
-        )
-        ex_name = ex["name"] if ex else "Unknown"
-        muscle = ex["muscle"] if ex else "unknown"
-        sets_text = ", ".join(
-            f"{st['weight_kg']}kg×{st['reps']}" for st in s["sets"]
-        )
-        summaries.append(
-            f"- {s['date'].strftime('%d %b')}: {ex_name} ({muscle}) | {sets_text}"
-        )
+    lines: list[str] = []
+    for w in workouts:
+        groups = ", ".join(w.get("muscle_groups", [])) or "no muscle groups yet"
+        lines.append(f"{w['date'].strftime('%d %b')} — {w['title']} [{groups}]")
 
-    return "\n".join(summaries) if summaries else "No sessions logged yet."
+        logs = await db[SESSIONS_COLLECTION].find(
+            {"user_id": user_id, "workout_id": w["_id"]}
+        ).sort("date", 1).to_list(100)
+        for s in logs:
+            # Re-assert ownership on the exercise lookup (defence in depth).
+            ex = await db[EXERCISES_COLLECTION].find_one(
+                {"_id": s["exercise_id"], "user_id": user_id}
+            )
+            ex_name = ex["name"] if ex else "Unknown"
+            muscle = ex["muscle"] if ex else "unknown"
+            line = f"  • {ex_name} ({muscle}): {_sets_text(s['sets'])}"
+            note = (s.get("notes") or "").strip()
+            if note:
+                line += f"  — note: {note}"
+            lines.append(line)
+        if not logs:
+            lines.append("  • (no sets logged yet)")
+
+    return "\n".join(lines) if lines else "No sessions logged yet."
 
 
 def _build_system_prompt(
@@ -72,7 +86,14 @@ def _build_system_prompt(
         "You have access to the user's real training data from the last 30 days shown below.",
         "Use this data to give personalised, specific advice. Reference actual numbers from their sessions.",
         "Be concise, practical, and encouraging. Never be generic — always tie your answer to their data.",
+        "Each training day is a SESSION whose title tells you the day type (e.g. Push, Pull, "
+        "Legs, Rest, Cardio, Full Body) — weigh your advice on recovery, balance, and what to "
+        "train next around that. Each exercise line may end with the user's own note "
+        "(how the set felt, pain, RPE, form cues) — read these notes and factor them into your "
+        "feedback.",
         f"\nUSER: {user_name}",
+        "\nTRAINING DATA FORMAT: each line `DD Mon — <Session title> [muscle groups]` is one "
+        "session; indented `• exercise (muscle): sets — note: ...` lines are what was logged.",
         f"\nRECENT TRAINING DATA (last {CONTEXT_DAYS} days):\n{training_block}",
     ]
 
@@ -93,6 +114,8 @@ def _build_system_prompt(
         "\nRules:\n"
         "- Keep replies under 150 words unless a detailed explanation is truly needed.\n"
         "- When recommending weight increases, suggest specific numbers based on their data.\n"
+        "- Use the session titles to reason about split balance and recovery (e.g. back-to-back "
+        "push days, no rest/legs day), and quote the user's notes when they explain your advice.\n"
         "- If they have no data yet, encourage them to log their first session.\n"
         "- Never make up data — only use what is shown above."
     )
