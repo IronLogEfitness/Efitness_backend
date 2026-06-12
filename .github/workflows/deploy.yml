@@ -1,0 +1,40 @@
+# CI/CD pipeline: every push to main builds the Docker image, pushes it to
+# Azure Container Registry, and the ACR webhook makes App Service redeploy.
+
+name: Build and deploy to Azure
+
+# WHEN to run: on every push to the main branch.
+# workflow_dispatch adds a manual "Run workflow" button in the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    # The runner: a fresh Linux VM GitHub spins up for this run (Docker preinstalled).
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Download the repo's code onto the runner (a fresh VM has nothing on it).
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      # 2. docker login to the private registry. The password comes from the
+      #    encrypted repo secret — never written in this file, masked in logs.
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: efitness2530307.azurecr.io
+          username: efitness2530307
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      # 3. Build the image from the Dockerfile at the repo root — exactly the
+      #    `docker build` you ran locally, now on GitHub's machine.
+      - name: Build the image
+        run: docker build -t efitness2530307.azurecr.io/efitness-backend:latest .
+
+      # 4. Push to ACR. This overwrites :latest, which fires the ACR webhook,
+      #    which tells App Service to pull the new image and restart (the CD half).
+      - name: Push the image to ACR
+        run: docker push efitness2530307.azurecr.io/efitness-backend:latest
