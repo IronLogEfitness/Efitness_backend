@@ -1,0 +1,39 @@
+# Secrets — must NEVER be baked into the image. Injected at runtime instead.
+.env
+.env.*
+
+# Python caches / compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Virtual environments (deps are installed fresh inside the image)
+venv/
+.venv/
+env/
+
+# Version control
+.git/
+.gitignore
+
+# Test / type-check / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker files themselves (not needed inside the build context's image)
+Dockerfile
+.dockerignore
+
+# OS cruft
+.DS_Store
+Thumbs.db
