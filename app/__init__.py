@@ -89,6 +89,6 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["Health"])
     def root():
-        return {"status": "IronLog API is running 💪 v2 — deployed by CI/CD"}
+        return {"status": "IronLog API is running 💪"}
 
     return app
