@@ -1,0 +1,6 @@
+# Development / CI-only dependencies. Installed in the CI test job, NOT baked into
+# the production Docker image (the Dockerfile installs requirements.txt only).
+-r requirements.txt
+
+pytest==8.4.2
+pytest-asyncio==1.2.0

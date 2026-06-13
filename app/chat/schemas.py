@@ -1,6 +1,8 @@
 """Request / response models for the AI chat endpoint."""
 from pydantic import BaseModel
 
+from app.coach.schemas import Action
+
 
 class ChatMessage(BaseModel):
     role: str  # "user" | "assistant"
@@ -23,3 +25,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: str
+    # Writes the coach wants to make, awaiting the user's approval via /chat/confirm.
+    # Empty for a plain Q&A turn (backward compatible with older clients).
+    proposed_actions: list[Action] = []

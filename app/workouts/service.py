@@ -137,13 +137,19 @@ async def get_workout(db, user_id, workout_id: str) -> WorkoutDetail:
 
 async def update_workout(db, user_id, workout_id: str, body: WorkoutUpdate) -> WorkoutDetail:
     await _require_workout(db, user_id, workout_id)
-    if body.title is None:
+
+    update: dict = {}
+    if body.title is not None:
+        update["title"] = body.title.strip()
+    if body.date is not None:
+        # Move the workout to another day. Logged sets are untouched — they link by
+        # workout_id, so only the workout's own `date` changes.
+        update["date"] = _day_to_utc_midnight(body.date)
+    if not update:
         raise BadRequestError("Nothing to update")
 
     oid = parse_object_id(workout_id, "workout id")
-    await db[COLLECTION].update_one(
-        {"_id": oid, "user_id": user_id}, {"$set": {"title": body.title.strip()}}
-    )
+    await db[COLLECTION].update_one({"_id": oid, "user_id": user_id}, {"$set": update})
     return await get_workout(db, user_id, workout_id)
 
 

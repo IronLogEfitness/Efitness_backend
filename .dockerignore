@@ -17,6 +17,11 @@ env/
 .git/
 .gitignore
 
+# Tests + dev-only files (the runtime image doesn't run them)
+tests/
+pytest.ini
+requirements-dev.txt
+
 # Test / type-check / lint caches
 .pytest_cache/
 .mypy_cache/

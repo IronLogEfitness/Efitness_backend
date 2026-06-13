@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     # tokens, older turns are folded into the conversation summary.
     CHAT_SUMMARY_TOKEN_THRESHOLD: int = 4000
 
+    # ── Agentic coach (function calling + human-in-the-loop) ──
+    # Hard cap on the chat tool loop: how many read→call→read rounds Gemini may
+    # take before we stop. Protects the free-tier request quota.
+    COACH_MAX_TOOL_ITERATIONS: int = 5
+    # Optional Gemini phrasing (off = templated, zero quota). Deterministic
+    # aggregation always runs in code; these only control the *wording* call.
+    COACH_CONFIRM_USE_LLM: bool = False   # confirmation sentence after /chat/confirm
+    COACH_BRIEFING_USE_LLM: bool = False  # pre-workout one-liner
+    COACH_RECAP_USE_LLM: bool = True      # weekly "wrapped" recap (1 call/week, cached)
+
     # ── CORS ── (JSON array in the env var, e.g. ["https://app.example.com"])
     CORS_ORIGINS: list[str] = ["*"]
 

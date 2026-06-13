@@ -23,13 +23,21 @@ async def lifespan(app: FastAPI):
     # Ensure the chat-memory indexes exist (idempotent). Best-effort: indexes are
     # a performance optimisation, not a correctness requirement, so a transient
     # DB hiccup here must not stop the API from starting.
+    from app.coach.models import ensure_indexes as ensure_coach_indexes
     from app.conversations.models import ensure_indexes
     from app.core.database import get_db
+    from app.goals.models import ensure_indexes as ensure_goal_indexes
 
-    try:
-        await ensure_indexes(get_db())
-    except Exception:
-        logger.exception("Could not ensure chat-memory indexes on startup")
+    db = get_db()
+    for label, ensure in (
+        ("chat-memory", ensure_indexes),
+        ("coach", ensure_coach_indexes),
+        ("goals", ensure_goal_indexes),
+    ):
+        try:
+            await ensure(db)
+        except Exception:
+            logger.exception("Could not ensure %s indexes on startup", label)
     try:
         yield
     finally:
@@ -59,8 +67,10 @@ def create_app() -> FastAPI:
     # ── Routers (imported here to keep the import graph flat) ──
     from app.auth.router import router as auth_router
     from app.chat.router import router as chat_router
+    from app.coach.router import router as coach_router
     from app.conversations.router import router as conversations_router
     from app.exercises.router import router as exercises_router
+    from app.goals.router import router as goals_router
     from app.muscles.router import router as muscles_router
     from app.progress.router import router as progress_router
     from app.sessions.router import router as sessions_router
@@ -73,6 +83,8 @@ def create_app() -> FastAPI:
     app.include_router(sessions_router,      prefix="/sessions",      tags=["Sessions"])
     app.include_router(progress_router,      prefix="/progress",      tags=["Progress"])
     app.include_router(chat_router,          prefix="/chat",          tags=["AI Chat"])
+    app.include_router(coach_router,         prefix="/coach",         tags=["AI Coach"])
+    app.include_router(goals_router,         prefix="/goals",         tags=["Goals"])
     app.include_router(conversations_router, prefix="/conversations", tags=["Conversations"])
 
     @app.get("/", tags=["Health"])

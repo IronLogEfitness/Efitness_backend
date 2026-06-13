@@ -1,5 +1,6 @@
-# CI/CD pipeline: every push to main builds the Docker image, pushes it to
-# Azure Container Registry, and the ACR webhook makes App Service redeploy.
+# CI/CD pipeline: every push to main first runs the test suite; only if it passes
+# does it build the Docker image, push it to Azure Container Registry, and let the
+# ACR webhook make App Service redeploy.
 
 name: Build and deploy to Azure
 
@@ -11,7 +12,29 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ── CI gate: run the deterministic test suite. No DB or Gemini key needed —
+  #    these tests cover pure logic only, so they run on a bare runner. ──
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # requirements-dev.txt pulls in runtime deps (-r requirements.txt) plus pytest.
+      - name: Install dependencies (runtime + test)
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest
+
   build-and-push:
+    # Don't build/deploy unless the tests passed.
+    needs: test
     # The runner: a fresh Linux VM GitHub spins up for this run (Docker preinstalled).
     runs-on: ubuntu-latest
 

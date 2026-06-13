@@ -12,6 +12,9 @@ class WorkoutCreate(BaseModel):
 
 class WorkoutUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1)
+    # Reschedule the workout to another day (its logged sets move with it, since
+    # sets link by workout_id, not by date). Used by PATCH /workouts/{id}.
+    date: date_type | None = None
 
 
 class MuscleGroupAdd(BaseModel):

@@ -64,6 +64,18 @@ async def update_workout(
     return await service.update_workout(db, current_user["_id"], workout_id, body)
 
 
+@router.patch("/{workout_id}", response_model=WorkoutDetail)
+async def patch_workout(
+    workout_id: str,
+    body: WorkoutUpdate,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Partially update a workout — notably reschedule it (``{"date": "YYYY-MM-DD"}``).
+    Its logged sets move with it. Used by the coach's ``move_workout`` action."""
+    return await service.update_workout(db, current_user["_id"], workout_id, body)
+
+
 @router.delete("/{workout_id}", status_code=204)
 async def delete_workout(
     workout_id: str,

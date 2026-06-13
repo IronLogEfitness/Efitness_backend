@@ -1,4 +1,6 @@
 """Business logic for logging and editing training sessions."""
+from app.coach.prs import detect_pr
+from app.coach.schemas import PRBadge
 from app.exercises.models import COLLECTION as EXERCISES_COLLECTION
 from app.helpers.dates import now_utc
 from app.helpers.exceptions import BadRequestError, NotFoundError
@@ -7,6 +9,18 @@ from app.helpers.objectid import parse_object_id
 from app.sessions.models import COLLECTION, SessionDocument
 from app.sessions.schemas import SessionCreate, SessionResponse, SessionUpdate
 from app.workouts.models import COLLECTION as WORKOUTS_COLLECTION
+
+
+async def _personal_best(db, user_id, exercise_id) -> float | None:
+    """Heaviest weight ever logged for this exercise (None if no history)."""
+    agg = await db[COLLECTION].aggregate(
+        [
+            {"$match": {"user_id": user_id, "exercise_id": exercise_id}},
+            {"$unwind": "$sets"},
+            {"$group": {"_id": None, "max": {"$max": "$sets.weight_kg"}}},
+        ]
+    ).to_list(1)
+    return agg[0]["max"] if agg else None
 
 
 def _to_response(doc: dict) -> SessionResponse:
@@ -63,6 +77,9 @@ async def create_session(db, user_id, body: SessionCreate) -> SessionResponse:
         if not workout:
             raise NotFoundError("Workout not found")
 
+    # Snapshot the prior best BEFORE inserting so PR detection is correct.
+    prev_best = await _personal_best(db, user_id, exercise_oid)
+
     doc = SessionDocument(
         user_id=user_id,
         exercise_id=exercise_oid,
@@ -73,7 +90,12 @@ async def create_session(db, user_id, body: SessionCreate) -> SessionResponse:
     ).model_dump()
     result = await db[COLLECTION].insert_one(doc)
     doc["_id"] = result.inserted_id
-    return _to_response(doc)
+
+    response = _to_response(doc)
+    badge = detect_pr([s.model_dump() for s in body.sets], prev_best)
+    if badge:
+        response.pr = PRBadge(**badge)
+    return response
 
 
 async def get_session(db, user_id, session_id: str) -> SessionResponse:

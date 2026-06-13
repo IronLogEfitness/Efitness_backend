@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 CHAT_MODEL = "gemini-2.5-flash"
 MAX_OUTPUT_TOKENS = 800
 SUMMARY_MAX_OUTPUT_TOKENS = 400
+# Tool turns can carry several parallel function calls plus a sentence of text,
+# so give them a little more room than a plain reply.
+TOOLS_MAX_OUTPUT_TOKENS = 1200
+COMPOSE_MAX_OUTPUT_TOKENS = 400
 
 # Transient upstream failures (model overloaded, rate limited, timeouts) are worth
 # retrying with a short exponential backoff instead of failing the user's turn.
@@ -78,6 +82,18 @@ async def _generate(model: str, contents: list, config: "types.GenerateContentCo
 _NO_THINKING = types.ThinkingConfig(thinking_budget=0)
 
 
+def _usage_from(response) -> dict:
+    """Pull Gemini's token accounting off a response (so callers can log/store
+    exact counts for free). Returns an empty dict when metadata is absent."""
+    meta = getattr(response, "usage_metadata", None)
+    if meta is None:
+        return {}
+    return {
+        "prompt_token_count": getattr(meta, "prompt_token_count", None),
+        "candidates_token_count": getattr(meta, "candidates_token_count", None),
+    }
+
+
 async def generate(system_instruction: str, contents: list) -> tuple[str, dict]:
     """Run one chat turn. Returns ``(reply_text, usage)`` where ``usage`` holds
     Gemini's token accounting (so the caller can store exact counts for free).
@@ -101,14 +117,63 @@ async def generate(system_instruction: str, contents: list) -> tuple[str, dict]:
     if not reply:
         raise AppError("The AI returned an empty response. Please try again.")
 
-    usage: dict = {}
-    meta = getattr(response, "usage_metadata", None)
-    if meta is not None:
-        usage = {
-            "prompt_token_count": getattr(meta, "prompt_token_count", None),
-            "candidates_token_count": getattr(meta, "candidates_token_count", None),
-        }
-    return reply, usage
+    return reply, _usage_from(response)
+
+
+async def generate_with_tools(
+    system_instruction: str,
+    contents: list,
+    declarations: "list[types.FunctionDeclaration]",
+) -> object:
+    """Run one tool-enabled turn for the agent loop. Returns the *raw* Gemini
+    response so the caller can inspect both ``function_calls`` and any text.
+
+    ``automatic_function_calling`` is DISABLED: the SDK must never run a tool on
+    its own. Every write tool is collected as a proposal and only executed after
+    the user confirms (see ``app.coach.agent`` / ``app.coach.actions``)."""
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        max_output_tokens=TOOLS_MAX_OUTPUT_TOKENS,
+        thinking_config=_NO_THINKING,
+        tools=[types.Tool(function_declarations=declarations)],
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+    )
+    try:
+        return await _generate(CHAT_MODEL, contents, config)
+    except Exception as e:
+        if _is_transient(e):
+            raise AppError(_BUSY_MESSAGE)
+        raise AppError(f"AI request failed: {e}")
+
+
+async def compose(
+    system_instruction: str,
+    prompt: str,
+    max_output_tokens: int = COMPOSE_MAX_OUTPUT_TOKENS,
+) -> tuple[str, dict]:
+    """One-shot text generation for optional phrasing (confirmation sentence,
+    weekly recap, briefing). Returns ``(text, usage)``. Raises ``AppError`` on an
+    upstream failure; callers treat phrasing as best-effort and fall back to a
+    template."""
+    try:
+        response = await _generate(
+            CHAT_MODEL,
+            [{"role": "user", "parts": [{"text": prompt}]}],
+            types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                max_output_tokens=max_output_tokens,
+                thinking_config=_NO_THINKING,
+            ),
+        )
+    except Exception as e:
+        if _is_transient(e):
+            raise AppError(_BUSY_MESSAGE)
+        raise AppError(f"AI request failed: {e}")
+
+    text = response.text
+    if not text:
+        raise AppError("The AI returned an empty response.")
+    return text.strip(), _usage_from(response)
 
 
 async def summarize(previous_summary: str | None, messages: list[dict]) -> str:

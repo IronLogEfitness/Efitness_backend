@@ -1,15 +1,17 @@
 # IronLog API
 
 Backend for the IronLog fitness tracker — FastAPI + MongoDB (Motor), with a
-Gemini-powered AI coach.
+Gemini-powered **agentic** AI coach that can log, plan, and reschedule training on
+the user's behalf (with human-in-the-loop confirmation).
 
 ## Tech stack
 
 - **FastAPI** — web framework
 - **MongoDB** + **Motor** — async database access
 - **python-jose** + **passlib** — JWT auth & password hashing
-- **google-genai** (Gemini 2.5 Flash) — AI coaching chat
+- **google-genai** (Gemini 2.5 Flash) — AI coaching chat + **function calling**
 - **pydantic-settings** — typed configuration
+- **pytest** — deterministic unit tests (dev only, see `requirements-dev.txt`)
 
 ## Architecture
 
@@ -34,9 +36,12 @@ app/
 ├── auth/                # register / login / me   (+ dependencies.py: get_current_user)
 ├── muscles/             # GET /muscles            (read-only aggregation)
 ├── exercises/           # CRUD /exercises
-├── sessions/            # CRUD /sessions
+├── workouts/            # CRUD /workouts          (day-level training sessions)
+├── sessions/            # CRUD /sessions          (per-exercise set logs)
 ├── progress/            # stats & charts          (read-only aggregation)
-├── chat/                # AI coach (Gemini)       (gemini.py wraps the client)
+├── chat/                # AI coach (Gemini)       (agent loop + /chat/confirm)
+├── coach/               # agentic layer: tools, propose/confirm, /coach namespace
+├── goals/               # CRUD /goals + deterministic trajectory
 └── conversations/       # persistent chat memory, import & published references
 ```
 
@@ -52,7 +57,10 @@ Per feature:
 `muscles` and `progress` have no `models.py` — they derive everything from the
 `exercises` / `sessions` collections. `chat` has none either: it orchestrates a
 turn but stores nothing itself — persistence lives in `conversations`, which owns
-the `conversations` and `messages` collections.
+the `conversations` and `messages` collections. The `coach` feature is split into
+more focused files than the standard four (see
+[Agentic AI coach](#agentic-ai-coach-function-calling) below) and owns the
+`coach_actions` and `coach_cache` collections; `goals` owns `goals`.
 
 ### Request flow
 
@@ -142,11 +150,23 @@ Every endpoint except `/`, `/auth/register`, and `/auth/login` requires an
 | DELETE | `/sessions/{id}`           | Delete a session |
 | GET    | `/progress/overview`       | Overall stats + per-muscle breakdown |
 | GET    | `/progress/exercise/{id}`  | Weight progression for one exercise (`?days=`) |
-| POST   | `/chat`                    | AI coach — remembers the conversation, uses your training data |
+| POST   | `/chat`                    | AI coach — agentic turn; may return `proposed_actions` |
+| POST   | `/chat/confirm`            | Apply the proposed actions the user accepted (idempotent) |
 | POST   | `/conversations/import`    | Import a Gemini conversation (`messages` or pasted `raw_text`) |
 | GET    | `/conversations`           | List conversations (`?source=`, `?is_published=`, `?limit=`, `?skip=`) |
 | GET    | `/conversations/{id}`      | Conversation detail + messages |
 | PUT    | `/conversations/{id}`      | Rename / publish / label a conversation |
+| PATCH  | `/workouts/{id}`           | Partial update — notably reschedule (`{"date": "YYYY-MM-DD"}`) |
+| GET    | `/coach/briefing`          | One-line pre-workout briefing for today (cached per day) |
+| GET    | `/coach/recap`             | Weekly "wrapped" recap (`?week=YYYY-Www`, cached per week) |
+| GET    | `/coach/progression`       | Next-session targets for a workout (`?workout_ref=`) |
+| GET    | `/coach/balance`           | Push/pull/legs volume audit with imbalances |
+| GET    | `/goals`                   | List goals (`?status=`) |
+| POST   | `/goals`                   | Create a goal |
+| GET    | `/goals/{id}`              | Goal detail |
+| GET    | `/goals/{id}/trajectory`   | Deterministic on/off-track projection |
+| PUT    | `/goals/{id}`              | Update / close a goal |
+| DELETE | `/goals/{id}`              | Delete a goal |
 
 ## AI coach (Gemini)
 
@@ -218,3 +238,61 @@ later).
 | ------------------------------ | ------- | ----------- |
 | `CHAT_HISTORY_LIMIT`           | `10`    | Raw messages kept after summarising |
 | `CHAT_SUMMARY_TOKEN_THRESHOLD` | `4000`  | Active-window token budget before older turns are summarised |
+
+## Agentic AI coach (function calling)
+
+Beyond answering questions, the coach can **act** on the app through Gemini
+function calling — log sets from natural language, plan a week, reschedule a day,
+set goals, and more. It runs under a strict **human-in-the-loop** rule: the model's
+write tools are **never auto-executed**.
+
+**The flow:**
+
+1. `POST /chat` runs an agent loop (hard-capped at `COACH_MAX_TOOL_ITERATIONS`).
+   **Read** tools (progress, workouts, exercises, balance, goals) auto-execute so
+   the model grounds its advice in real data. **Write** tools come back in the
+   response as `proposed_actions` — each an `{ action_id, type, summary, args,
+   status }` — and nothing is written yet.
+2. The app shows the proposals and lets the user accept/reject them.
+3. `POST /chat/confirm { conversation_id, accepted_ids[], rejected_ids?[] }`
+   executes the accepted actions through the **same** services the manual UI uses
+   (so chat-logged records are identical), in a dependency-safe order, and
+   **idempotently** — re-submitting the same `accepted_ids` never double-writes.
+
+**Never fabricate IDs.** Write-tool args use human references — an exercise *name*,
+a *date* or `today`, a workout *title* — resolved to real IDs only at confirm time
+(fuzzy name match within a muscle; `today`/`YYYY-MM-DD` → that day's workout,
+created if needed). Ambiguous references come back as `needs_clarification` and the
+coach asks one short question instead of guessing.
+
+**Deterministic-first (free-tier friendly).** PR detection, progression maths,
+muscle-balance ratios, weekly-recap aggregation, and goal trajectory all run in
+plain code — Gemini is called only for open-ended reasoning (NL parsing, planning)
+and optional phrasing. Recap and briefing are cached per `(user, week/date)` in
+`coach_cache`, and these are triggered on app-open (a `GET`), never a background
+cron, so quota is only spent when a user is active.
+
+### Coach config knobs
+
+| Variable                     | Default | Description |
+| ---------------------------- | ------- | ----------- |
+| `COACH_MAX_TOOL_ITERATIONS`  | `5`     | Hard cap on read→call rounds per chat turn |
+| `COACH_CONFIRM_USE_LLM`      | `false` | Phrase the confirmation sentence with Gemini (else templated) |
+| `COACH_BRIEFING_USE_LLM`     | `false` | Phrase the pre-workout briefing with Gemini (else templated) |
+| `COACH_RECAP_USE_LLM`        | `true`  | Write the weekly recap with Gemini (1 cached call/week) |
+
+## Tests
+
+Deterministic logic (PR detection, progression, balance, ID resolution, goal
+trajectory, write-tool validation) is unit-tested with **no DB or Gemini key
+required** — the tests exercise pure functions over plain data.
+
+```bash
+pip install -r requirements-dev.txt   # runtime deps + pytest
+pytest
+```
+
+CI runs the same suite on every push to `main` and only builds/deploys the Docker
+image if it passes (see `.github/workflows/deploy.yml`). Test-only dependencies
+live in `requirements-dev.txt`, so they are **not** baked into the production
+image (which installs `requirements.txt` only).

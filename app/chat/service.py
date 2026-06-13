@@ -16,8 +16,13 @@ from the request body. The model only ever sees the logged-in user's own data.
 import logging
 from datetime import timedelta
 
+from google.genai import types
+
 from app.chat import gemini
 from app.chat.schemas import ChatRequest
+from app.coach import actions as coach_actions
+from app.coach import agent
+from app.coach.schemas import Action, ChatConfirmRequest, ChatConfirmResponse
 from app.config import settings
 from app.conversations import service as conversations
 from app.conversations.models import ROLE_ASSISTANT, ROLE_USER
@@ -82,9 +87,19 @@ def _build_system_prompt(
     optional context blocks: curated published references, and the condensed
     summary of earlier turns in this conversation."""
     sections = [
-        "You are IronLog AI, a knowledgeable and motivating personal fitness coach.",
-        "You have access to the user's real training data from the last 30 days shown below.",
-        "Use this data to give personalised, specific advice. Reference actual numbers from their sessions.",
+        "You are IronLog's strength coach with LIVE access to the user's training app "
+        "through tools. When the user asks you to log, plan, change, or schedule "
+        "something, CALL the appropriate tool(s) instead of describing the steps by "
+        "hand. Use the READ tools to ground every piece of advice in the user's real "
+        "data first, then emit ALL needed WRITE tools together in one turn.",
+        "Writes are NOT applied immediately: each becomes a proposal the user must "
+        "approve in the app. When you propose actions, briefly state what you'll add "
+        "or change and that the user must approve it.",
+        "NEVER fabricate ids — refer to exercises by NAME and days by DATE (use 'today' "
+        "or YYYY-MM-DD), and let the system resolve them. If a request is ambiguous, "
+        "ask ONE short clarifying question instead of guessing.",
+        "You also have the user's real training data from the last 30 days shown below. "
+        "Use it to give personalised, specific advice and reference actual numbers.",
         "Be concise, practical, and encouraging. Never be generic — always tie your answer to their data.",
         "Each training day is a SESSION whose title tells you the day type (e.g. Push, Pull, "
         "Legs, Rest, Cardio, Full Body) — weigh your advice on recovery, balance, and what to "
@@ -147,8 +162,14 @@ async def _maybe_summarize(db, conversation_id, user_id) -> None:
         logger.exception("Unexpected error summarising conversation %s", conversation_id)
 
 
-async def chat(db, user: dict, body: ChatRequest) -> tuple[str, str]:
-    """Run one chat turn. Returns ``(reply, conversation_id)``."""
+async def chat(db, user: dict, body: ChatRequest) -> tuple[str, str, list[Action]]:
+    """Run one agentic chat turn.
+
+    Returns ``(reply, conversation_id, proposed_actions)``. Read tools auto-execute
+    inside the agent loop; any write tools the model emits come back as
+    ``proposed_actions`` (persisted as ``pending``) and are applied only after the
+    user confirms them via :func:`confirm`.
+    """
     if not settings.GEMINI_API_KEY:
         # 500: a configuration problem, not a client error.
         raise AppError("GEMINI_API_KEY not configured")
@@ -179,24 +200,41 @@ async def chat(db, user: dict, body: ChatRequest) -> tuple[str, str]:
     contents = []
     for m in recent:
         role = "model" if m["role"] == ROLE_ASSISTANT else "user"
-        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-    contents.append({"role": "user", "parts": [{"text": body.message}]})
+        contents.append(types.Content(role=role, parts=[types.Part(text=m["content"])]))
+    contents.append(types.Content(role="user", parts=[types.Part(text=body.message)]))
 
-    # 3. Call Gemini.
-    reply, usage = await gemini.generate(system_prompt, contents)
+    # 3. Run the agentic loop (reads auto-exec; writes → proposals).
+    reply, proposals, usage = await agent.run_turn(db, user_id, system_prompt, contents)
 
-    # 4. Persist both turns immediately. Store the exact assistant token count
-    #    from Gemini's usage metadata when present; estimate the user's.
+    # 4. Persist both turns. The assistant token count is the loop's summed output.
     await conversations.append_message(db, conversation, ROLE_USER, body.message)
     await conversations.append_message(
         db,
         conversation,
         ROLE_ASSISTANT,
         reply,
-        token_count=usage.get("candidates_token_count"),
+        token_count=usage.get("candidates_tokens") or None,
     )
 
-    # 5. Compress older turns if we crossed the token threshold.
+    # 5. Persist pending proposals so /chat/confirm can find them by action_id.
+    if proposals:
+        await coach_actions.persist_proposals(
+            db, conversation["_id"], user_id, proposals
+        )
+
+    # 6. Compress older turns if we crossed the token threshold.
     await _maybe_summarize(db, conversation["_id"], user_id)
 
-    return reply, str(conversation["_id"])
+    return reply, str(conversation["_id"]), proposals
+
+
+async def confirm(db, user: dict, body: ChatConfirmRequest) -> ChatConfirmResponse:
+    """Apply the actions the user accepted (and record any they rejected).
+
+    Delegates to ``coach.actions.confirm``, which executes accepted actions
+    transactionally, in a dependency-safe order, and idempotently (re-confirming
+    never double-writes). Templated reply by default — no Gemini call unless
+    ``COACH_CONFIRM_USE_LLM`` is enabled."""
+    return await coach_actions.confirm(
+        db, user, body.conversation_id, body.accepted_ids, body.rejected_ids
+    )
