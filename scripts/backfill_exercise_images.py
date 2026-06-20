@@ -21,23 +21,11 @@ from motor.motor_asyncio import AsyncIOMotorClient
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import settings
+from app.muscles.constants import MUSCLE_MAP  # single source of truth
 
 EMAIL = "rafik.gatri.2002@gmail.com"
 LIBRARY_PATH = Path(r"C:\Users\rgatr\IronLog\src\data\exerciseLibrary.json")
 IMAGE_BASE = "https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/exercises/"
-
-# Mirrors the app's muscle-group -> db primaryMuscles mapping so a chest
-# exercise prefers a chest illustration when the name is ambiguous.
-MUSCLE_MAP = {
-    "chest": ["chest"],
-    "back": ["lats", "middle back", "lower back", "traps", "neck"],
-    "biceps": ["biceps", "forearms"],
-    "triceps": ["triceps"],
-    "legs": ["quadriceps", "hamstrings", "calves", "glutes", "adductors", "abductors"],
-    "shoulders": ["shoulders"],
-    "abs": ["abdominals"],
-    "cardio": [],
-}
 
 
 def norm(s: str) -> str:

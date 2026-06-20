@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     from app.conversations.router import router as conversations_router
     from app.exercises.router import router as exercises_router
     from app.goals.router import router as goals_router
+    from app.library.router import router as library_router
     from app.muscles.router import router as muscles_router
     from app.progress.router import router as progress_router
     from app.sessions.router import router as sessions_router
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router,          prefix="/auth",          tags=["Auth"])
     app.include_router(muscles_router,       prefix="/muscles",       tags=["Muscles"])
     app.include_router(exercises_router,     prefix="/exercises",     tags=["Exercises"])
+    app.include_router(library_router,       prefix="/exercise-library", tags=["Exercise Library"])
     app.include_router(workouts_router,      prefix="/workouts",      tags=["Workouts"])
     app.include_router(sessions_router,      prefix="/sessions",      tags=["Sessions"])
     app.include_router(progress_router,      prefix="/progress",      tags=["Progress"])

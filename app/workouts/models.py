@@ -26,4 +26,10 @@ class WorkoutDocument(BaseModel):
     title: str
     # Lowercase muscle names from app.muscles.constants.MUSCLE_GROUPS.
     muscle_groups: list[str] = Field(default_factory=list)
+    # Which catalog exercises belong to THIS workout. Exercises live in the shared
+    # `exercises` collection (so personal-best / progress / coach keep tracking each
+    # by a stable id across sessions), but a workout only shows the ones explicitly
+    # added to — or logged in — it. Empty on a fresh workout, so a new session starts
+    # blank instead of inheriting every exercise ever made for the muscle.
+    exercise_ids: list[ObjectId] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=now_utc)

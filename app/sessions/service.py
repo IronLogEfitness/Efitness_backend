@@ -91,6 +91,15 @@ async def create_session(db, user_id, body: SessionCreate) -> SessionResponse:
     result = await db[COLLECTION].insert_one(doc)
     doc["_id"] = result.inserted_id
 
+    # Logging a set under a workout makes that exercise part of the workout, so it
+    # shows up in the workout's muscle block (membership is per-workout). No-op when
+    # logged standalone (no workout_id).
+    if workout_oid is not None:
+        await db[WORKOUTS_COLLECTION].update_one(
+            {"_id": workout_oid, "user_id": user_id},
+            {"$addToSet": {"exercise_ids": exercise_oid}},
+        )
+
     response = _to_response(doc)
     badge = detect_pr([s.model_dump() for s in body.sets], prev_best)
     if badge:

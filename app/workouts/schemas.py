@@ -21,6 +21,19 @@ class MuscleGroupAdd(BaseModel):
     muscle: str
 
 
+class WorkoutExerciseAdd(BaseModel):
+    """Add an exercise to one workout's muscle block.
+
+    The exercise is found-or-created in the shared catalog by (muscle, name) so a
+    re-used name keeps its tracking history; only the membership link is new.
+    """
+
+    muscle: str
+    name: str = Field(..., min_length=2)
+    emoji: str = Field(default="🏋️")
+    image_url: str | None = None
+
+
 class WorkoutListItem(BaseModel):
     """One row in GET /workouts (month or single-day listing)."""
 

@@ -11,6 +11,7 @@ from app.workouts.schemas import (
     MuscleGroupAdd,
     WorkoutCreate,
     WorkoutDetail,
+    WorkoutExerciseAdd,
     WorkoutListItem,
     WorkoutUpdate,
 )
@@ -103,3 +104,27 @@ async def remove_muscle_group(
     db=Depends(get_db),
 ):
     return await service.remove_muscle_group(db, current_user["_id"], workout_id, muscle)
+
+
+@router.post("/{workout_id}/exercises", response_model=WorkoutDetail)
+async def add_workout_exercise(
+    workout_id: str,
+    body: WorkoutExerciseAdd,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Add an exercise to this workout (found-or-created in the shared catalog)."""
+    return await service.add_workout_exercise(db, current_user["_id"], workout_id, body)
+
+
+@router.delete("/{workout_id}/exercises/{exercise_id}", response_model=WorkoutDetail)
+async def remove_workout_exercise(
+    workout_id: str,
+    exercise_id: str,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Remove an exercise from this workout only (keeps its history elsewhere)."""
+    return await service.remove_workout_exercise(
+        db, current_user["_id"], workout_id, exercise_id
+    )
