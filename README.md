@@ -4,6 +4,12 @@ Backend for the IronLog fitness tracker — FastAPI + MongoDB (Motor), with a
 Gemini-powered **agentic** AI coach that can log, plan, and reschedule training on
 the user's behalf (with human-in-the-loop confirmation).
 
+[![Build and deploy to Azure](https://github.com/IronLogEfitness/Efitness_backend/actions/workflows/deploy.yml/badge.svg)](https://github.com/IronLogEfitness/Efitness_backend/actions/workflows/deploy.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+- 📱 **Mobile app:** [IronLogEfitness/Efitness_frontend](https://github.com/IronLogEfitness/Efitness_frontend) (Expo + React Native)
+- 📖 **Live API docs (Swagger):** <https://efitness-backend-2530307.azurewebsites.net/docs>
+
 ## Tech stack
 
 - **FastAPI** — web framework
@@ -338,3 +344,8 @@ is no "log out everywhere". A planned design:
 
 This keeps stateless-access-token performance for normal requests while adding a
 revocation path and bounding the blast radius of a leaked token.
+
+## License
+
+[MIT](LICENSE). The mobile app lives in
+[IronLogEfitness/Efitness_frontend](https://github.com/IronLogEfitness/Efitness_frontend).
