@@ -131,7 +131,8 @@ def create_app() -> FastAPI:
     from app.core.rate_limit import limiter
 
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # slowapi's handler takes RateLimitExceeded, narrower than Starlette's Exception.
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     # ── CORS (lets the mobile app call this API) ──
     # This is a Bearer-token API (no cookies), so credentials mode stays off —

@@ -24,6 +24,7 @@ from app.muscles.constants import MUSCLE_GROUPS
 from app.progress import service as progress_service
 from app.workouts import service as workouts_service
 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Schema builders (compact wrappers over google-genai's OpenAPI-subset Schema)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -357,4 +358,6 @@ def validate_write(name: str, raw_args: dict) -> tuple[dict, str]:
     ``pydantic.ValidationError`` (or KeyError for an unknown tool) on bad input."""
     model, summarise = WRITE_TOOLS[name]
     parsed = model(**(raw_args or {}))
-    return parsed.model_dump(exclude_none=True), summarise(parsed)
+    # WRITE_TOOLS is a heterogeneous (model, summariser) registry, so the summariser
+    # reads as object to the type checker; it is always callable here.
+    return parsed.model_dump(exclude_none=True), summarise(parsed)  # type: ignore[operator]

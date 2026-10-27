@@ -151,7 +151,8 @@ def _template_reply(results: list[ActionResult]) -> str:
         parts.append("✅ " + " ".join(r.detail for r in applied if r.detail))
     pr_hits = [r for r in done if r.pr]
     for r in pr_hits:
-        parts.append(f"🏆 New PR: {r.pr.value:g}kg!")
+        if r.pr:  # always true (pr_hits is filtered); also narrows the type
+            parts.append(f"🏆 New PR: {r.pr.value:g}kg!")
     if clarify:
         parts.append(" ".join(r.detail for r in clarify if r.detail))
     if failed:
