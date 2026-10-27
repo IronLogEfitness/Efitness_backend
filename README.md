@@ -289,16 +289,52 @@ cron, so quota is only spent when a user is active.
 
 ## Tests
 
-Deterministic logic (PR detection, progression, balance, ID resolution, goal
-trajectory, write-tool validation) is unit-tested with **no DB or Gemini key
-required** — the tests exercise pure functions over plain data.
+Three layers, all runnable locally with no real database or Gemini key:
+
+- **Pure logic** — PR detection, progression, balance, ID resolution, goal
+  trajectory, write-tool validation, and the streak computation: pure functions
+  over plain data.
+- **Aggregation parity / data layer** — the progress aggregations and list
+  endpoints run against an in-memory Mongo (`mongomock-motor`, configured
+  `tz_aware=True` to match production), asserting the rewritten pipelines return
+  the same results as before.
+- **API level** — the critical flows (register/login, create-exercise →
+  log-session → PR detection, confirm idempotency) driven through the real ASGI
+  app with `httpx`.
 
 ```bash
-pip install -r requirements-dev.txt   # runtime deps + pytest
+pip install -r requirements-dev.txt   # runtime deps + pytest + tooling
 pytest
 ```
 
-CI runs the same suite on every push to `main` and only builds/deploys the Docker
-image if it passes (see `.github/workflows/deploy.yml`). Test-only dependencies
-live in `requirements-dev.txt`, so they are **not** baked into the production
-image (which installs `requirements.txt` only).
+CI (`.github/workflows/deploy.yml`) gates the build on a **lint + type-check** job
+(ruff + mypy, configured in `pyproject.toml`) and the test suite, and only
+builds/deploys the Docker image if both pass. Test-only dependencies live in
+`requirements-dev.txt`, so they are **not** baked into the production image (which
+installs `requirements.txt` only).
+
+## Future work
+
+### Refresh tokens & revocation
+
+Auth is currently a single 7-day **access token** (a `SECRET_KEY`-signed JWT) with
+no server-side revocation: a leaked token stays valid until it expires, and there
+is no "log out everywhere". A planned design:
+
+- **Short-lived access token (~15 min) + long-lived refresh token (~30 days).**
+  The refresh token is an opaque random string; only its hash is stored, in a
+  `refresh_tokens` collection keyed by `(user_id, token_hash)` with `expires_at`
+  and a `jti`. A new `POST /auth/refresh` swaps a valid refresh token for a fresh
+  access token.
+- **Rotation on use.** Each refresh issues a new refresh token and invalidates the
+  old one; presenting an already-rotated token signals theft and revokes that
+  user's whole chain.
+- **Revocation.** Logout deletes the stored refresh token; "sign out everywhere"
+  deletes all of a user's. For immediate *access*-token revocation, add a per-user
+  `token_version` claim checked on each request (bump it to invalidate every
+  outstanding access token) or a short-TTL `jti` denylist.
+- **Storage & cleanup.** A TTL index on `refresh_tokens.expires_at` auto-prunes
+  expired rows; everything stays scoped to `user_id`.
+
+This keeps stateless-access-token performance for normal requests while adding a
+revocation path and bounding the blast radius of a leaked token.
