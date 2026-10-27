@@ -91,13 +91,14 @@ Settings are read from environment variables / a `.env` file in the project root
 
 | Variable                      | Required  | Default                     | Description |
 | ----------------------------- | --------- | --------------------------- | ----------- |
+| `ENV`                         | prod      | `production`                | Deployment environment. Any value other than `dev`/`development`/`local`/`test` is treated as production, which enforces the startup security checks below. Set `ENV=dev` locally to run with the placeholder secret. |
 | `MONGO_URI`                   | yes       | `mongodb://localhost:27017` | MongoDB connection string |
 | `DB_NAME`                     | yes       | `ironlog`                   | Database name |
-| `SECRET_KEY`                  | yes       | insecure placeholder        | JWT signing secret — use a long random value, not reused from anywhere else |
+| `SECRET_KEY`                  | yes       | insecure placeholder        | JWT signing secret — use a long random value, not reused from anywhere else. **In production the app refuses to boot while this is left at the default placeholder** (signing JWTs with a known value is a full auth bypass). |
 | `ALGORITHM`                   | no        | `HS256`                     | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no        | `10080` (7 days)            | Access-token lifetime |
 | `GEMINI_API_KEY`              | for chat  | empty                       | Google AI Studio key for the AI coach |
-| `CORS_ORIGINS`                | no        | `["*"]`                     | JSON array of allowed origins |
+| `CORS_ORIGINS`                | prod      | `["*"]`                     | JSON array of allowed origins. `["*"]` is a dev default; in production set an explicit allowlist, e.g. `CORS_ORIGINS=["https://app.example.com"]`. The API uses Bearer tokens (no cookies), so CORS credentials mode is off. |
 
 A minimal `.env`:
 
@@ -116,6 +117,11 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 > **Note:** `.env` changes are only applied when the server (re)starts —
 > `--reload` watches `.py` files, not `.env`. Restart after editing it.
+
+**Production checklist:** leave `ENV` unset (or set it to `production`), set a
+strong random `SECRET_KEY`, and set `CORS_ORIGINS` to your app's real origin(s).
+With `ENV` in production mode the app will refuse to start if `SECRET_KEY` is
+still the placeholder, and will log a warning if `CORS_ORIGINS` is left at `["*"]`.
 
 ## Run
 
