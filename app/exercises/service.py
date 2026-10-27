@@ -29,26 +29,51 @@ async def _personal_best(db, user_id, exercise_id):
     return result[0]["max"] if result else None
 
 
+async def _session_stats(db, user_id) -> dict:
+    """Map of exercise_id -> {personal_best, last_date, last_set_count} for the
+    user, in a single aggregation over the sessions collection (replacing the
+    previous two queries per exercise).
+
+    personal_best is the heaviest set ever logged; last_date / last_set_count come
+    from the most recent session (sessions sorted ascending so $last is newest).
+    """
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$sort": {"date": 1}},
+        {
+            "$group": {
+                "_id": "$exercise_id",
+                "personal_best": {"$max": {"$max": "$sets.weight_kg"}},
+                "last_date": {"$last": "$date"},
+                "last_set_count": {"$last": {"$size": "$sets"}},
+            }
+        },
+    ]
+    return {
+        r["_id"]: r
+        for r in await db[SESSIONS_COLLECTION].aggregate(pipeline).to_list(length=None)
+    }
+
+
 async def list_exercises(db, user_id, muscle: str | None = None) -> list[dict]:
     query = {"user_id": user_id}
     if muscle:
         query["muscle"] = muscle.lower()
 
     exercises = await db[COLLECTION].find(query).sort("created_at", 1).to_list(200)
-    result = []
+    stats = await _session_stats(db, user_id)
 
+    result = []
     for ex in exercises:
         ex_id = ex["_id"]
-        personal_best = await _personal_best(db, user_id, ex_id)
+        st = stats.get(ex_id)
 
-        last_session = await db[SESSIONS_COLLECTION].find_one(
-            {"user_id": user_id, "exercise_id": ex_id}, sort=[("date", -1)]
-        )
+        personal_best = st["personal_best"] if st else None
         last_session_summary = None
         set_count = None
-        if last_session:
-            set_count = len(last_session["sets"])
-            label = _days_ago_label(last_session["date"])
+        if st and st["last_date"] is not None:
+            set_count = st["last_set_count"]
+            label = _days_ago_label(st["last_date"])
             last_session_summary = f"{set_count} set{'s' if set_count != 1 else ''} · {label}"
 
         result.append(
