@@ -124,6 +124,15 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # ── Rate limiting (slowapi) — blunts brute-force on the auth endpoints ──
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
+    from app.core.rate_limit import limiter
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     # ── CORS (lets the mobile app call this API) ──
     # This is a Bearer-token API (no cookies), so credentials mode stays off —
     # that's also what makes an explicit origin allowlist meaningful, since
