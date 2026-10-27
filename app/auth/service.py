@@ -1,4 +1,6 @@
 """Business logic for registration, login, and profile management."""
+from pymongo.errors import DuplicateKeyError
+
 from app.auth.models import COLLECTION, UserDocument
 from app.auth.schemas import (
     LoginRequest,
@@ -25,6 +27,9 @@ def serialize_user(user: dict) -> UserResponse:
 
 
 async def register(db, body: RegisterRequest) -> TokenResponse:
+    # Fast, friendly path for the common case. The unique index on `email`
+    # (auth.models.ensure_indexes) is the real guard: it closes the race where
+    # two concurrent requests both pass this check and then both insert.
     if await db[COLLECTION].find_one({"email": body.email}):
         raise BadRequestError("Email already registered")
 
@@ -33,7 +38,11 @@ async def register(db, body: RegisterRequest) -> TokenResponse:
         email=body.email,
         password=hash_password(body.password),
     ).model_dump()
-    result = await db[COLLECTION].insert_one(doc)
+    try:
+        result = await db[COLLECTION].insert_one(doc)
+    except DuplicateKeyError:
+        # Lost the race: a concurrent request inserted this email first.
+        raise BadRequestError("Email already registered")
     user_id = str(result.inserted_id)
 
     token = create_access_token({"sub": user_id})
