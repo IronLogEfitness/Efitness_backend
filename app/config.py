@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # Anything not in DEV_ENVIRONMENTS is treated as production for the startup
     # safety checks (secure by default: an unset ENV means "production").
     ENV: str = "production"
+    # Root log level (DEBUG/INFO/WARNING/ERROR). Logs are emitted as structured
+    # JSON lines so they stay greppable in Azure Log Stream.
+    LOG_LEVEL: str = "INFO"
+
+    # ── Rate limiting ── (brute-force protection on the auth endpoints)
+    AUTH_RATE_LIMIT: str = "10/minute"
 
     # ── MongoDB ──
     MONGO_URI: str = "mongodb://localhost:27017"

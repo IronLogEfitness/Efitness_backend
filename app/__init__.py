@@ -3,17 +3,48 @@
 `create_app()` is the composition root: it builds the FastAPI instance,
 wires middleware, exception handlers, and the per-feature routers.
 """
+import json
 import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import DEFAULT_SECRET_KEY, settings
 from app.core.database import close_db, connect_db
 from app.helpers.exceptions import register_exception_handlers
 
 logger = logging.getLogger(__name__)
+
+
+class _JsonLogFormatter(logging.Formatter):
+    """Minimal structured (one JSON object per line) log formatter, so the many
+    logger.* calls across the app surface consistently and stay greppable in
+    Azure Log Stream / log aggregators."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            payload["exc"] = self.formatException(record.exc_info)
+        return json.dumps(payload, default=str)
+
+
+def _configure_logging() -> None:
+    """Route the root logger through a single structured handler at LOG_LEVEL."""
+    level = logging.getLevelName(settings.LOG_LEVEL.upper())
+    if not isinstance(level, int):
+        level = logging.INFO
+    handler = logging.StreamHandler()
+    handler.setFormatter(_JsonLogFormatter())
+    root = logging.getLogger()
+    root.handlers = [handler]
+    root.setLevel(level)
 
 
 def _enforce_secure_config() -> None:
@@ -81,6 +112,8 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # Structured logging first, so the config check below logs consistently.
+    _configure_logging()
     # Refuse to boot with an insecure production configuration (see above).
     _enforce_secure_config()
 
@@ -134,5 +167,21 @@ def create_app() -> FastAPI:
     @app.get("/", tags=["Health"])
     def root():
         return {"status": "IronLog API is running 💪"}
+
+    @app.get("/health", tags=["Health"])
+    async def health():
+        """Readiness probe: 200 when MongoDB answers a ping, 503 otherwise — so
+        Azure/monitoring can tell 'process up' from 'DB reachable'."""
+        from app.core.database import get_db
+
+        try:
+            await get_db().command("ping")
+        except Exception:
+            logger.warning("Health check: database ping failed")
+            return JSONResponse(
+                status_code=503,
+                content={"status": "degraded", "database": "unreachable"},
+            )
+        return {"status": "ok", "database": "ok"}
 
     return app

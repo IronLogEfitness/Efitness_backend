@@ -40,6 +40,14 @@ USER appuser
 # it does not actually publish the port — `docker run -p` does that.
 EXPOSE 8000
 
+# ---- Health probe -----------------------------------------------------------
+# Mark the container healthy only once the app answers on /health (which also
+# pings MongoDB). Uses Python since the slim image has no curl; reads $PORT so it
+# matches the start command. A non-200 (e.g. 503 when the DB is down) raises and
+# exits non-zero, so Docker/Azure sees the container as unhealthy.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:%s/health' % os.getenv('PORT','8000'), timeout=4).status==200 else 1)"
+
 # ---- Start command ----------------------------------------------------------
 # Production start: NO --reload. Bind 0.0.0.0 so the server is reachable from
 # outside the container. Listen on $PORT if the platform injects one (Azure App
