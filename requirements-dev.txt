@@ -4,3 +4,12 @@
 
 pytest==8.4.2
 pytest-asyncio==1.2.0
+# In-memory Mongo for DB-backed unit tests (aggregation parity, API flows). Mirrors
+# the production motor client's tz_aware=True so UTC date comparisons behave the same.
+mongomock-motor==0.0.36
+mongomock==4.3.0
+# Drives the ASGI app in-process for the API-level tests (httpx ASGITransport).
+httpx==0.28.1
+# Lint + type-check (also gated in CI).
+ruff==0.17.3
+mypy==2.4.0

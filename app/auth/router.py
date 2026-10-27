@@ -1,5 +1,5 @@
 """Auth endpoints: /auth/register, /auth/login, /auth/me."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.auth import service
 from app.auth.dependencies import get_current_user
@@ -11,17 +11,22 @@ from app.auth.schemas import (
     UserResponse,
 )
 from app.core.database import get_db
+from app.core.rate_limit import auth_rate_limit, limiter
 
 router = APIRouter()
 
 
+# Rate-limited per client IP to blunt credential brute-force / signup abuse. The
+# `request` param is required by slowapi; the response shape is unchanged.
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(body: RegisterRequest, db=Depends(get_db)):
+@limiter.limit(auth_rate_limit)
+async def register(request: Request, body: RegisterRequest, db=Depends(get_db)):
     return await service.register(db, body)
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db=Depends(get_db)):
+@limiter.limit(auth_rate_limit)
+async def login(request: Request, body: LoginRequest, db=Depends(get_db)):
     return await service.login(db, body)
 
 

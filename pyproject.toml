@@ -1,0 +1,40 @@
+# Tooling config for lint (ruff) and type-check (mypy). Both run in CI (see
+# .github/workflows/deploy.yml) and gate the build alongside the tests.
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["venv"]
+
+[tool.ruff.lint]
+# Correctness- and modernization-focused: pycodestyle (E/W), pyflakes (F),
+# import sorting (I), bugbear (B), pyupgrade (UP). Deliberately not the whole
+# catalogue — this lints for bugs, not style churn.
+select = ["E", "W", "F", "I", "B", "UP"]
+# E501 (line length) is advisory here; the formatter, not the gate, owns wrapping.
+# B904: the services intentionally translate low-level errors into clean domain
+# AppErrors without chaining the cause into the HTTP response (logged separately).
+ignore = ["E501", "B904"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection defaults (Depends/Query/… in argument defaults)
+# are the intended pattern, not the B008 mutable-default footgun.
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.Query",
+  "fastapi.Path",
+  "fastapi.Body",
+  "fastapi.Header",
+  "fastapi.Form",
+  "fastapi.File",
+]
+
+[tool.mypy]
+python_version = "3.12"
+# Pragmatic settings for a FastAPI + Motor + Pydantic codebase that wasn't
+# type-checked before: resolve what we can, don't fail on third-party stubs, and
+# only check the bodies of functions that are actually annotated.
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+exclude = ['(^|/)(venv|tests)/']

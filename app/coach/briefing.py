@@ -5,7 +5,8 @@ the same session was trained ("Beat last week's 3×8 row at 50kg"). Composed
 deterministically by default (Gemini optional, off), cached per ``(user, date)`` so
 re-opening the app costs nothing. Trigger is app-open (a GET), never a cron.
 """
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
+from typing import Any
 
 from bson import ObjectId
 
@@ -21,7 +22,7 @@ from app.workouts.models import COLLECTION as WORKOUTS_COLLECTION
 
 
 def _day_bounds(day) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min, tzinfo=timezone.utc)
+    start = datetime.combine(day, time.min, tzinfo=UTC)
     return start, start + timedelta(days=1)
 
 
@@ -69,7 +70,7 @@ async def get_briefing(db, user_id: ObjectId) -> BriefingResponse:
     )
     title = workout["title"] if workout else None
     last = (
-        await _last_same_session(db, user_id, title, start) if workout else None
+        await _last_same_session(db, user_id, workout["title"], start) if workout else None
     )
 
     text = _template_text(title, last)
@@ -84,7 +85,7 @@ async def get_briefing(db, user_id: ObjectId) -> BriefingResponse:
         except AppError:
             pass  # keep the template
 
-    payload = {
+    payload: dict[str, Any] = {
         "date": start.isoformat(),
         "has_workout": workout is not None,
         "title": title,

@@ -13,7 +13,7 @@ When a reference is ambiguous or unresolvable, these raise ``NeedsClarification`
 so the caller can ask one short question instead of guessing.
 """
 import re
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from difflib import SequenceMatcher
 
 from bson import ObjectId
@@ -41,7 +41,7 @@ class NeedsClarification(Exception):
 
 # ── Pure helpers (unit-tested without a DB) ──
 def _midnight_utc(day) -> datetime:
-    return datetime.combine(day, time.min, tzinfo=timezone.utc)
+    return datetime.combine(day, time.min, tzinfo=UTC)
 
 
 def parse_date_ref(ref: str | None, today=None) -> datetime | None:

@@ -1,5 +1,5 @@
 """Read-only analytics: overall stats and per-exercise weight progression."""
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, timedelta
 
 from app.exercises.models import COLLECTION as EXERCISES_COLLECTION
 from app.helpers.dates import now_utc
@@ -36,30 +36,7 @@ async def get_overview(db, user_id) -> OverviewResponse:
     total_exercises = await db[EXERCISES_COLLECTION].count_documents({"user_id": user_id})
     prs_this_month = await _count_prs_this_month(db, user_id, month_start)
     streak = await _calculate_streak(db, user_id)
-
-    muscle_breakdown: list[MuscleStats] = []
-    for muscle in MUSCLE_GROUPS:
-        ex_ids = await db[EXERCISES_COLLECTION].distinct(
-            "_id", {"user_id": user_id, "muscle": muscle}
-        )
-        if not ex_ids:
-            muscle_breakdown.append(
-                MuscleStats(muscle=muscle, total_sessions=0, total_sets=0, last_trained=None)
-            )
-            continue
-
-        match = {"user_id": user_id, "exercise_id": {"$in": ex_ids}}
-        m_sessions = await db[SESSIONS_COLLECTION].count_documents(match)
-        m_sets = await _count_sets(db, match)
-        last = await db[SESSIONS_COLLECTION].find_one(match, sort=[("date", -1)])
-        muscle_breakdown.append(
-            MuscleStats(
-                muscle=muscle,
-                total_sessions=m_sessions,
-                total_sets=m_sets,
-                last_trained=last["date"] if last else None,
-            )
-        )
+    muscle_breakdown = await _muscle_breakdown(db, user_id)
 
     return OverviewResponse(
         total_sessions=total_sessions,
@@ -113,48 +90,109 @@ async def get_exercise_progress(
 
 
 # ── Helpers ──
-async def _calculate_streak(db, user_id) -> int:
-    """How many consecutive days (ending today) have at least one session."""
-    today = now_utc().date()
+def compute_streak(session_days: set[date], today: date) -> int:
+    """Number of consecutive days up to and including ``today`` that are present
+    in ``session_days``. 0 when today itself has no session. Capped at 365 to
+    mirror the previous bounded day-by-day scan.
+
+    Pure (no DB) so it can be unit-tested directly; ``_calculate_streak`` feeds
+    it the set of UTC days on which the user trained.
+    """
     streak = 0
     day = today
-    for _ in range(365):
-        start = datetime.combine(day, time.min, tzinfo=timezone.utc)
-        end = datetime.combine(day, time.max, tzinfo=timezone.utc)
-        count = await db[SESSIONS_COLLECTION].count_documents(
-            {"user_id": user_id, "date": {"$gte": start, "$lte": end}}
-        )
-        if count > 0:
-            streak += 1
-            day = day - timedelta(days=1)
-        else:
-            break
+    while day in session_days and streak < 365:
+        streak += 1
+        day -= timedelta(days=1)
     return streak
 
 
+async def _calculate_streak(db, user_id) -> int:
+    """How many consecutive days (ending today, UTC) have at least one session.
+
+    One aggregation groups the user's sessions into the distinct UTC days they
+    trained; the consecutive-day count is then computed in ``compute_streak``.
+    ($dateToString defaults to UTC, matching the UTC-stored session dates.)
+    """
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$date"}}}},
+    ]
+    rows = await db[SESSIONS_COLLECTION].aggregate(pipeline).to_list(length=None)
+    session_days = {date.fromisoformat(r["_id"]) for r in rows}
+    return compute_streak(session_days, now_utc().date())
+
+
 async def _count_prs_this_month(db, user_id, month_start) -> int:
-    """Number of exercises that hit a new personal best this month."""
-    exercise_ids = await db[EXERCISES_COLLECTION].distinct("_id", {"user_id": user_id})
-    prs = 0
-    for ex_id in exercise_ids:
-        before = await db[SESSIONS_COLLECTION].aggregate(
-            [
-                {"$match": {"user_id": user_id, "exercise_id": ex_id, "date": {"$lt": month_start}}},
-                {"$unwind": "$sets"},
-                {"$group": {"_id": None, "max": {"$max": "$sets.weight_kg"}}},
-            ]
-        ).to_list(1)
-        prev_pr = before[0]["max"] if before else 0
+    """Number of exercises whose heaviest set this month beats their heaviest set
+    from before this month.
 
-        this_month = await db[SESSIONS_COLLECTION].aggregate(
-            [
-                {"$match": {"user_id": user_id, "exercise_id": ex_id, "date": {"$gte": month_start}}},
-                {"$unwind": "$sets"},
-                {"$group": {"_id": None, "max": {"$max": "$sets.weight_kg"}}},
-            ]
-        ).to_list(1)
-        this_max = this_month[0]["max"] if this_month else 0
+    One aggregation over all the user's sessions (previously two aggregations per
+    exercise): group by exercise, taking the max weight on each side of
+    ``month_start``. An exercise with no prior history has prev_max None → 0, so a
+    brand-new exercise that logged any weight this month still counts as a PR —
+    identical to the previous per-exercise logic.
+    """
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$unwind": "$sets"},
+        {
+            "$group": {
+                "_id": "$exercise_id",
+                "prev_max": {
+                    "$max": {"$cond": [{"$lt": ["$date", month_start]}, "$sets.weight_kg", None]}
+                },
+                "month_max": {
+                    "$max": {"$cond": [{"$gte": ["$date", month_start]}, "$sets.weight_kg", None]}
+                },
+            }
+        },
+    ]
+    rows = await db[SESSIONS_COLLECTION].aggregate(pipeline).to_list(length=None)
+    return sum(1 for r in rows if (r["month_max"] or 0) > (r["prev_max"] or 0))
 
-        if this_max > prev_pr:
-            prs += 1
-    return prs
+
+async def _muscle_breakdown(db, user_id) -> list[MuscleStats]:
+    """Per-muscle session count, set count, and last-trained date — all 8 muscle
+    groups in ``MUSCLE_GROUPS`` order, zeros/None for ones not yet trained.
+
+    One aggregation (previously a distinct + count + set-count + find_one per
+    muscle): a session's muscle is its exercise's muscle, so join sessions →
+    exercises and group by ``exercise.muscle``. Sessions whose exercise no longer
+    exists are dropped by ``$unwind``, exactly as the old id-filtered counts did.
+    """
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {
+            "$lookup": {
+                "from": EXERCISES_COLLECTION,
+                "localField": "exercise_id",
+                "foreignField": "_id",
+                "as": "exercise",
+            }
+        },
+        {"$unwind": "$exercise"},
+        {
+            "$group": {
+                "_id": "$exercise.muscle",
+                "total_sessions": {"$sum": 1},
+                "total_sets": {"$sum": {"$size": "$sets"}},
+                "last_trained": {"$max": "$date"},
+            }
+        },
+    ]
+    rows = {
+        r["_id"]: r
+        for r in await db[SESSIONS_COLLECTION].aggregate(pipeline).to_list(length=None)
+    }
+    breakdown: list[MuscleStats] = []
+    for muscle in MUSCLE_GROUPS:
+        r = rows.get(muscle)
+        breakdown.append(
+            MuscleStats(
+                muscle=muscle,
+                total_sessions=r["total_sessions"] if r else 0,
+                total_sets=r["total_sets"] if r else 0,
+                last_trained=r["last_trained"] if r else None,
+            )
+        )
+    return breakdown

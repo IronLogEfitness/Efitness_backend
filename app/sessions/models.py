@@ -29,3 +29,16 @@ class SessionDocument(BaseModel):
     sets: list[SetDocument]
     notes: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
+    # Bumped when a session's sets/notes are edited; present for future sync.
+    updated_at: datetime = Field(default_factory=now_utc)
+
+
+async def ensure_indexes(db) -> None:
+    """Back the session read paths: per-exercise history and personal-best
+    (progress, exercise list), per-workout set logs, and the per-user date scans
+    that drive the overview streak / breakdown. date is indexed descending to
+    favour the common "most recent first" reads (Mongo walks it either way).
+    Idempotent — safe to call on every startup."""
+    await db[COLLECTION].create_index([("user_id", 1), ("exercise_id", 1), ("date", -1)])
+    await db[COLLECTION].create_index([("user_id", 1), ("workout_id", 1)])
+    await db[COLLECTION].create_index([("user_id", 1), ("date", -1)])

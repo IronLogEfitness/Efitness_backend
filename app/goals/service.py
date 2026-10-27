@@ -4,7 +4,7 @@ Every query is scoped to ``user_id`` (from the verified JWT). ``compute_trajecto
 is a pure function (plain dicts in, dict out) so the on/off-track maths is
 unit-testable without a DB and spends zero Gemini quota.
 """
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 from bson import ObjectId
 
@@ -27,7 +27,7 @@ TRAJECTORY_LOOKBACK_DAYS = 365
 
 def _day_to_utc_midnight(day) -> datetime:
     """Normalise a calendar date to midnight UTC (matches workouts.service)."""
-    return datetime.combine(day, time.min, tzinfo=timezone.utc)
+    return datetime.combine(day, time.min, tzinfo=UTC)
 
 
 # ── Trajectory maths (pure, unit-tested) ──

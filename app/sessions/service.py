@@ -85,7 +85,7 @@ async def create_session(db, user_id, body: SessionCreate) -> SessionResponse:
         exercise_id=exercise_oid,
         workout_id=workout_oid,
         date=body.date or now_utc(),
-        sets=[s.model_dump() for s in body.sets],
+        sets=[s.model_dump() for s in body.sets],  # type: ignore[misc]  # pydantic coerces dicts -> SetDocument
         notes=body.notes,
     ).model_dump()
     result = await db[COLLECTION].insert_one(doc)
@@ -127,6 +127,7 @@ async def update_session(
         update_data["notes"] = body.notes
     if not update_data:
         raise BadRequestError("Nothing to update")
+    update_data["updated_at"] = now_utc()
 
     doc = await db[COLLECTION].find_one_and_update(
         {"_id": oid, "user_id": user_id},

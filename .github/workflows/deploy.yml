@@ -12,8 +12,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── CI gate: run the deterministic test suite. No DB or Gemini key needed —
-  #    these tests cover pure logic only, so they run on a bare runner. ──
+  # ── Lint + type-check gate: ruff and mypy must pass before anything else. ──
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies (runtime + dev)
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff (lint)
+        run: ruff check app
+
+      - name: Mypy (type-check)
+        run: mypy app
+
+  # ── CI gate: run the test suite (pure logic + DB-backed via mongomock + the
+  #    API-level flows). No real DB or Gemini key needed. ──
   test:
     runs-on: ubuntu-latest
     steps:
@@ -33,8 +54,8 @@ jobs:
         run: pytest
 
   build-and-push:
-    # Don't build/deploy unless the tests passed.
-    needs: test
+    # Don't build/deploy unless both the lint/type-check and the tests passed.
+    needs: [lint, test]
     # The runner: a fresh Linux VM GitHub spins up for this run (Docker preinstalled).
     runs-on: ubuntu-latest
 

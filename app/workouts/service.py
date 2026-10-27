@@ -5,9 +5,10 @@ collection and link back via `workout_id`. Every query here is scoped to
 `user_id` (from the verified JWT), never from the request body.
 """
 import re
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 from app.exercises.models import COLLECTION as EXERCISES_COLLECTION
+from app.helpers.dates import now_utc
 from app.helpers.exceptions import BadRequestError, NotFoundError
 from app.helpers.objectid import parse_object_id
 from app.muscles.constants import MUSCLE_GROUPS
@@ -17,8 +18,8 @@ from app.workouts.schemas import (
     ExerciseInWorkout,
     MuscleGroupBlock,
     WorkoutCreate,
-    WorkoutExerciseAdd,
     WorkoutDetail,
+    WorkoutExerciseAdd,
     WorkoutListItem,
     WorkoutUpdate,
 )
@@ -45,7 +46,7 @@ async def _member_exercise_ids(db, user_id, workout_doc: dict) -> list:
 
 def _day_to_utc_midnight(day) -> datetime:
     """Normalise a calendar date to midnight UTC, the canonical stored value."""
-    return datetime.combine(day, time.min, tzinfo=timezone.utc)
+    return datetime.combine(day, time.min, tzinfo=UTC)
 
 
 async def _exercise_count(db, user_id, workout_doc: dict) -> int:
@@ -175,6 +176,7 @@ async def update_workout(db, user_id, workout_id: str, body: WorkoutUpdate) -> W
         update["date"] = _day_to_utc_midnight(body.date)
     if not update:
         raise BadRequestError("Nothing to update")
+    update["updated_at"] = now_utc()
 
     oid = parse_object_id(workout_id, "workout id")
     await db[COLLECTION].update_one({"_id": oid, "user_id": user_id}, {"$set": update})
@@ -188,7 +190,8 @@ async def add_muscle_group(db, user_id, workout_id: str, muscle: str) -> Workout
 
     oid = parse_object_id(workout_id, "workout id")
     result = await db[COLLECTION].update_one(
-        {"_id": oid, "user_id": user_id}, {"$addToSet": {"muscle_groups": muscle}}
+        {"_id": oid, "user_id": user_id},
+        {"$addToSet": {"muscle_groups": muscle}, "$set": {"updated_at": now_utc()}},
     )
     if result.matched_count == 0:
         raise NotFoundError("Workout not found")
@@ -198,7 +201,8 @@ async def add_muscle_group(db, user_id, workout_id: str, muscle: str) -> Workout
 async def remove_muscle_group(db, user_id, workout_id: str, muscle: str) -> WorkoutDetail:
     oid = parse_object_id(workout_id, "workout id")
     result = await db[COLLECTION].update_one(
-        {"_id": oid, "user_id": user_id}, {"$pull": {"muscle_groups": muscle.lower()}}
+        {"_id": oid, "user_id": user_id},
+        {"$pull": {"muscle_groups": muscle.lower()}, "$set": {"updated_at": now_utc()}},
     )
     if result.matched_count == 0:
         raise NotFoundError("Workout not found")
@@ -258,7 +262,10 @@ async def add_workout_exercise(
     # Ensure the muscle is on the workout and the exercise is a member of it.
     await db[COLLECTION].update_one(
         {"_id": oid, "user_id": user_id},
-        {"$addToSet": {"muscle_groups": muscle, "exercise_ids": exercise_oid}},
+        {
+            "$addToSet": {"muscle_groups": muscle, "exercise_ids": exercise_oid},
+            "$set": {"updated_at": now_utc()},
+        },
     )
     return await get_workout(db, user_id, workout_id)
 
@@ -277,7 +284,7 @@ async def remove_workout_exercise(
 
     result = await db[COLLECTION].update_one(
         {"_id": oid, "user_id": user_id},
-        {"$pull": {"exercise_ids": exercise_oid}},
+        {"$pull": {"exercise_ids": exercise_oid}, "$set": {"updated_at": now_utc()}},
     )
     if result.matched_count == 0:
         raise NotFoundError("Workout not found")

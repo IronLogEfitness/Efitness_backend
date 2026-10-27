@@ -6,38 +6,39 @@ from app.sessions.models import COLLECTION as SESSIONS_COLLECTION
 
 
 async def list_muscles(db, user_id) -> list[MuscleSummary]:
-    result: list[MuscleSummary] = []
+    # One aggregation for every muscle's exercise count + last-trained date
+    # (previously a count query plus a lookup pipeline per muscle group): join
+    # exercises -> their sessions and group by muscle. Exercises with no sessions
+    # contribute a null date that $max ignores, so an untrained muscle is None.
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {
+            "$lookup": {
+                "from": SESSIONS_COLLECTION,
+                "localField": "_id",
+                "foreignField": "exercise_id",
+                "as": "sessions",
+            }
+        },
+        {
+            "$group": {
+                "_id": "$muscle",
+                "exercise_count": {"$sum": 1},
+                "last_trained": {"$max": {"$max": "$sessions.date"}},
+            }
+        },
+    ]
+    rows = {
+        r["_id"]: r
+        for r in await db[EXERCISES_COLLECTION].aggregate(pipeline).to_list(length=None)
+    }
 
-    for muscle in MUSCLE_GROUPS:
-        count = await db[EXERCISES_COLLECTION].count_documents(
-            {"user_id": user_id, "muscle": muscle}
+    # Keep every muscle group, in MUSCLE_GROUPS order, zeros/None for untrained ones.
+    return [
+        MuscleSummary(
+            muscle=muscle,
+            exercise_count=rows[muscle]["exercise_count"] if muscle in rows else 0,
+            last_trained=rows[muscle]["last_trained"] if muscle in rows else None,
         )
-
-        # Most recent session date across any exercise in this muscle group.
-        pipeline = [
-            {"$match": {"user_id": user_id, "muscle": muscle}},
-            {
-                "$lookup": {
-                    "from": SESSIONS_COLLECTION,
-                    "localField": "_id",
-                    "foreignField": "exercise_id",
-                    "as": "sessions",
-                }
-            },
-            {"$unwind": {"path": "$sessions", "preserveNullAndEmptyArrays": True}},
-            {"$sort": {"sessions.date": -1}},
-            {"$limit": 1},
-            {"$project": {"last_trained": "$sessions.date"}},
-        ]
-        docs = await db[EXERCISES_COLLECTION].aggregate(pipeline).to_list(1)
-        last_trained = docs[0].get("last_trained") if docs else None
-
-        result.append(
-            MuscleSummary(
-                muscle=muscle,
-                exercise_count=count,
-                last_trained=last_trained,
-            )
-        )
-
-    return result
+        for muscle in MUSCLE_GROUPS
+    ]
