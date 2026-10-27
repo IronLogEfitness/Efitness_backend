@@ -3,7 +3,10 @@
 # ---- Base image -------------------------------------------------------------
 # Start from an official Python 3.12 image. The "-slim" variant is a trimmed-down
 # Debian with just enough to run Python — much smaller than the full image.
-FROM python:3.12-slim
+# Pinned by digest for reproducible, tamper-evident builds (the tag is kept for
+# readability). Refresh with:
+#   docker buildx imagetools inspect python:3.12-slim --format '{{.Manifest.Digest}}'
+FROM python:3.12-slim@sha256:12316debbfb86890f6b2d825820612741ba527ad5a44e3902759141d572bfe8f
 
 # ---- Python runtime behaviour ----------------------------------------------
 # PYTHONDONTWRITEBYTECODE: don't litter the image with .pyc files.
