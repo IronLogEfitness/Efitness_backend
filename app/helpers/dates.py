@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def now_utc() -> datetime:
@@ -6,4 +6,4 @@ def now_utc() -> datetime:
 
     Replaces the deprecated ``datetime.utcnow()`` (which returned a naive value).
     """
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)

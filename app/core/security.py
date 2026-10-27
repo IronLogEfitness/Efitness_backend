@@ -5,7 +5,6 @@ The request-time "who is the current user" logic lives in
 `app.auth.dependencies` instead.
 """
 from datetime import timedelta
-from typing import Optional
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -27,7 +26,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ── JWT ──
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
     expire = now_utc() + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -36,7 +35,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[str]:
+def decode_access_token(token: str) -> str | None:
     """Return the user id stored in the token's `sub` claim, or None if invalid."""
     try:
         payload = jwt.decode(

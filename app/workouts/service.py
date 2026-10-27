@@ -5,7 +5,7 @@ collection and link back via `workout_id`. Every query here is scoped to
 `user_id` (from the verified JWT), never from the request body.
 """
 import re
-from datetime import datetime, time, timezone
+from datetime import UTC, datetime, time
 
 from app.exercises.models import COLLECTION as EXERCISES_COLLECTION
 from app.helpers.exceptions import BadRequestError, NotFoundError
@@ -17,8 +17,8 @@ from app.workouts.schemas import (
     ExerciseInWorkout,
     MuscleGroupBlock,
     WorkoutCreate,
-    WorkoutExerciseAdd,
     WorkoutDetail,
+    WorkoutExerciseAdd,
     WorkoutListItem,
     WorkoutUpdate,
 )
@@ -45,7 +45,7 @@ async def _member_exercise_ids(db, user_id, workout_doc: dict) -> list:
 
 def _day_to_utc_midnight(day) -> datetime:
     """Normalise a calendar date to midnight UTC, the canonical stored value."""
-    return datetime.combine(day, time.min, tzinfo=timezone.utc)
+    return datetime.combine(day, time.min, tzinfo=UTC)
 
 
 async def _exercise_count(db, user_id, workout_doc: dict) -> int:

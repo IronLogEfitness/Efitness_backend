@@ -5,7 +5,7 @@ lift) in plain code; then at most ONE Gemini call writes the recap prose, and th
 whole payload is cached per ``(user, ISO-week)`` so re-opening the app re-serves it
 for free. Trigger is app-open (a GET), never a background cron.
 """
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 
 from bson import ObjectId
 
@@ -34,7 +34,7 @@ def _week_range(week: str) -> tuple[datetime, datetime]:
         monday = datetime.fromisocalendar(int(year_s), int(week_s), 1).date()
     except (ValueError, AttributeError):
         raise BadRequestError("week must look like 2026-W24")
-    start = datetime.combine(monday, time.min, tzinfo=timezone.utc)
+    start = datetime.combine(monday, time.min, tzinfo=UTC)
     return start, start + timedelta(days=7)
 
 

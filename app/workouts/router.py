@@ -1,6 +1,6 @@
 """Workout (training-session) endpoints: CRUD under /workouts."""
+from datetime import UTC, datetime, time
 from datetime import date as date_type
-from datetime import datetime, time, timezone
 
 from fastapi import APIRouter, Depends, Query
 
@@ -31,9 +31,9 @@ async def list_workouts(
     if date is not None:
         start = end = date
     start_dt = (
-        datetime.combine(start, time.min, tzinfo=timezone.utc) if start else None
+        datetime.combine(start, time.min, tzinfo=UTC) if start else None
     )
-    end_dt = datetime.combine(end, time.max, tzinfo=timezone.utc) if end else None
+    end_dt = datetime.combine(end, time.max, tzinfo=UTC) if end else None
     return await service.list_workouts(db, current_user["_id"], start_dt, end_dt)
 
 
