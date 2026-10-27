@@ -127,6 +127,7 @@ async def update_session(
         update_data["notes"] = body.notes
     if not update_data:
         raise BadRequestError("Nothing to update")
+    update_data["updated_at"] = now_utc()
 
     doc = await db[COLLECTION].find_one_and_update(
         {"_id": oid, "user_id": user_id},

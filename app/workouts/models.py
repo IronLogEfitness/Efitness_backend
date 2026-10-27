@@ -33,6 +33,8 @@ class WorkoutDocument(BaseModel):
     # blank instead of inheriting every exercise ever made for the muscle.
     exercise_ids: list[ObjectId] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=now_utc)
+    # Bumped on title/date/membership changes; present for future sync / debugging.
+    updated_at: datetime = Field(default_factory=now_utc)
 
 
 async def ensure_indexes(db) -> None:

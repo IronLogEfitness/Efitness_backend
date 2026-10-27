@@ -22,6 +22,8 @@ class ExerciseDocument(BaseModel):
     emoji: str = "🏋️"
     image_url: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
+    # Present for future sync / debugging (exercises are create/delete only today).
+    updated_at: datetime = Field(default_factory=now_utc)
 
 
 async def ensure_indexes(db) -> None:

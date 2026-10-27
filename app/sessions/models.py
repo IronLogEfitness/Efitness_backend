@@ -29,6 +29,8 @@ class SessionDocument(BaseModel):
     sets: list[SetDocument]
     notes: str | None = None
     created_at: datetime = Field(default_factory=now_utc)
+    # Bumped when a session's sets/notes are edited; present for future sync.
+    updated_at: datetime = Field(default_factory=now_utc)
 
 
 async def ensure_indexes(db) -> None:

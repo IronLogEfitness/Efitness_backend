@@ -19,6 +19,8 @@ class UserDocument(BaseModel):
     height_cm: float | None = None
     weight_kg: float | None = None
     created_at: datetime = Field(default_factory=now_utc)
+    # Bumped on profile updates; present for future sync / debugging.
+    updated_at: datetime = Field(default_factory=now_utc)
 
 
 async def ensure_indexes(db) -> None:

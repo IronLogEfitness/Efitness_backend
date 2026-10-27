@@ -10,6 +10,7 @@ from app.auth.schemas import (
     UserResponse,
 )
 from app.core.security import create_access_token, hash_password, verify_password
+from app.helpers.dates import now_utc
 from app.helpers.exceptions import BadRequestError, UnauthorizedError
 
 
@@ -75,6 +76,7 @@ async def update_profile(db, user: dict, body: UpdateProfileRequest) -> UserResp
         update["weight_kg"] = body.weight_kg
 
     if update:
+        update["updated_at"] = now_utc()
         await db[COLLECTION].update_one({"_id": user["_id"]}, {"$set": update})
         user.update(update)
 
