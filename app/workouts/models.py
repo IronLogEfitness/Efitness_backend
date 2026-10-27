@@ -33,3 +33,9 @@ class WorkoutDocument(BaseModel):
     # blank instead of inheriting every exercise ever made for the muscle.
     exercise_ids: list[ObjectId] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=now_utc)
+
+
+async def ensure_indexes(db) -> None:
+    """Back the per-user agenda reads (workouts listed/looked up by date).
+    Idempotent — safe to call on every startup."""
+    await db[COLLECTION].create_index([("user_id", 1), ("date", -1)])

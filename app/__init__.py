@@ -55,7 +55,10 @@ async def lifespan(app: FastAPI):
     from app.coach.models import ensure_indexes as ensure_coach_indexes
     from app.conversations.models import ensure_indexes
     from app.core.database import get_db
+    from app.exercises.models import ensure_indexes as ensure_exercise_indexes
     from app.goals.models import ensure_indexes as ensure_goal_indexes
+    from app.sessions.models import ensure_indexes as ensure_session_indexes
+    from app.workouts.models import ensure_indexes as ensure_workout_indexes
 
     db = get_db()
     for label, ensure in (
@@ -63,6 +66,9 @@ async def lifespan(app: FastAPI):
         ("chat-memory", ensure_indexes),
         ("coach", ensure_coach_indexes),
         ("goals", ensure_goal_indexes),
+        ("exercises", ensure_exercise_indexes),
+        ("sessions", ensure_session_indexes),
+        ("workouts", ensure_workout_indexes),
     ):
         try:
             await ensure(db)
